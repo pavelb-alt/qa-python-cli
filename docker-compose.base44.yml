@@ -1,0 +1,55 @@
+# Base44 dev environment for qa-cli (a command-line tool with no web server).
+# The `cli` service installs the package in editable mode from the bind-mounted
+# source and serves a tiny preview page on port 3000. Each request runs the real
+# `qa-cli` command in a subprocess, so edits to qa_cli/ show up on refresh.
+# This harness lives only here; it is not part of the application code.
+services:
+  cli:
+    image: python:3.12-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PIP_ROOT_USER_ACTION=ignore
+      - PIP_DISABLE_PIP_VERSION_CHECK=1
+    ports:
+      - "3000:3000"
+    restart: on-failure
+    command:
+      - sh
+      - -ec
+      - |
+        pip install -q -e .
+        exec python -u -c '
+        import html, shlex, subprocess, urllib.parse
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        class H(BaseHTTPRequestHandler):
+            def do_GET(self):
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                args = shlex.split(q.get("args", ["greet --name World"])[0])
+                r = subprocess.run(["qa-cli", *args], capture_output=True, text=True, timeout=10)
+                out = html.escape(r.stdout + r.stderr)
+                a = html.escape(" ".join(args), quote=True)
+                body = f"""<!doctype html><meta charset=utf-8><title>qa-cli preview</title>
+        <body style="font-family:system-ui;max-width:720px;margin:40px auto;padding:0 16px">
+        <h1>qa-cli preview</h1><p>Runs the real <code>qa-cli</code> command from the repo source.</p>
+        <form><code>qa-cli</code> <input name=args value="{a}" size=40> <button>Run</button></form>
+        <p>Exit code: <b id=code>{r.returncode}</b></p>
+        <pre id=output style="background:#111;color:#eee;padding:16px;border-radius:8px;white-space:pre-wrap">{out}</pre></body>"""
+                data = body.encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+        ThreadingHTTPServer(("0.0.0.0", 3000), H).serve_forever()
+        '
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; b=urllib.request.urlopen('http://localhost:3000/?args=greet', timeout=5).read(); sys.exit(0 if b'Hello, World!' in b else 1)"]
+      interval: 15s
+      timeout: 6s
+      retries: 3
+      start_period: 30s
