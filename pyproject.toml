@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "qa-cli"
+version = "0.1.0"
+description = "QA Python CLI"
+requires-python = ">=3.8"
+
+[project.scripts]
+qa-cli = "qa_cli.main:main"
+
+[tool.setuptools]
+packages = ["qa_cli"]
